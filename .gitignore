@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.bak
+*.bak.*
+*.coord-return
+tools.py.bak.coord-return
+.hermes-runtime/

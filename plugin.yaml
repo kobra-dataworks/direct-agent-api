@@ -1,0 +1,5 @@
+name: direct-agent-api
+version: "1.0.0"
+description: Controlled direct Hermes API coordination between approved local profiles
+provides_tools:
+  - coordinate_agent

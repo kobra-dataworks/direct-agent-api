@@ -1,0 +1,77 @@
+{
+  "timestamp_utc": "2026-08-18T05:31:16.329572+00:00",
+  "planned_action": {
+    "scope": "load tested alert-only reconciler code in its sole unit",
+    "load_class": "light",
+    "process_count": "one bounded service action and one service process",
+    "timeout_seconds": 120,
+    "acceptance": "new PID, active/running, direct no-side-effect smoke, DB schema/readback",
+    "forbidden": "gateway lifecycle actions, specialist runs, approvals, Docker/browser/heavy tests"
+  },
+  "memavailable": "17851808 kB",
+  "swaptotal": "8388604 kB",
+  "swapfree": "2389896 kB",
+  "memory_psi": "some avg10=0.02 avg60=0.49 avg300=0.42 total=1977090864\nfull avg10=0.01 avg60=0.27 avg300=0.25 total=1466585303",
+  "vmstat_1s_6": {
+    "rc": 0,
+    "out": "Prozesse -----------Speicher---------- ---Auslagerung-- -----E/A---- -System-- ------CPU-----\n r  b   swpd   frei   buff  Cache   si   so    bi    bo   in   cs US SY ID WA st\n 0  0 5998708 1350516 1057704 16130384    1    4   266   154    2    1 20  8 71  1  0\n 2  0 5998708 1355276 1057744 16129012    0    0     4  1880 5512 10232 15  9 75  0  0\n 0  0 5998708 1355024 1057776 16128856    0    0     0   476 4386 6419 21  6 73  0  0\n 2  0 5998708 1354780 1057804 16128888    0    0     0   468 4784 8012 19  8 72  0  0\n11  0 5998708 1352328 1057804 16128908    0    0     0    16 8667 18757 26 17 57  0  0\n 3  0 5998708 1355560 1057804 16128924    0    0     0    36 6394 11760 23 11 67  0  0"
+  },
+  "heavy_processes": {
+    "rc": 0,
+    "out": ""
+  },
+  "kernel_incidents_30m": {
+    "rc": 0,
+    "out": ""
+  },
+  "oomd_incidents_30m": {
+    "rc": 0,
+    "out": ""
+  },
+  "gateway_unit_state": {
+    "hermes-gateway.service": {
+      "rc": 0,
+      "out": "MainPID=3433998\nExecMainStartTimestamp=Mon 2026-08-17 11:33:36 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-openexo.service": {
+      "rc": 0,
+      "out": "MainPID=3438538\nExecMainStartTimestamp=Mon 2026-08-17 11:34:41 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-delivery.service": {
+      "rc": 0,
+      "out": "MainPID=3438853\nExecMainStartTimestamp=Mon 2026-08-17 11:34:45 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-qa.service": {
+      "rc": 0,
+      "out": "MainPID=3595672\nExecMainStartTimestamp=Tue 2026-08-18 05:58:21 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-coding.service": {
+      "rc": 0,
+      "out": "MainPID=3702403\nExecMainStartTimestamp=Sat 2026-08-15 07:00:17 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-marketing.service": {
+      "rc": 0,
+      "out": "MainPID=3438639\nExecMainStartTimestamp=Mon 2026-08-17 11:34:43 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-sales.service": {
+      "rc": 0,
+      "out": "MainPID=3438736\nExecMainStartTimestamp=Mon 2026-08-17 11:34:44 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-onboarding.service": {
+      "rc": 0,
+      "out": "MainPID=3438561\nExecMainStartTimestamp=Mon 2026-08-17 11:34:41 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-leni.service": {
+      "rc": 0,
+      "out": "MainPID=3438613\nExecMainStartTimestamp=Mon 2026-08-17 11:34:43 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-donna.service": {
+      "rc": 0,
+      "out": "MainPID=3434086\nExecMainStartTimestamp=Mon 2026-08-17 11:33:36 CEST\nActiveState=active\nSubState=running"
+    },
+    "hermes-gateway-dondraper.service": {
+      "rc": 0,
+      "out": "MainPID=3439148\nExecMainStartTimestamp=Mon 2026-08-17 11:34:47 CEST\nActiveState=active\nSubState=running"
+    }
+  }
+}
