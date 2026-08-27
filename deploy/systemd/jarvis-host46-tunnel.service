@@ -1,0 +1,23 @@
+[Unit]
+Description=Restricted loopback tunnel between Jarvis and host46
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -NT \
+  -i %h/.ssh/id_ed25519_host46_direct_agent \
+  -o IdentitiesOnly=yes \
+  -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes \
+  -L 127.0.0.1:9678:127.0.0.1:9766 \
+  -R 127.0.0.1:19762:127.0.0.1:9661 \
+  openclawadmin@46.225.102.150
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

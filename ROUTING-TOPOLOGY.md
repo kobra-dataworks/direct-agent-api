@@ -27,6 +27,26 @@ Explicitly forbidden:
 
 Other separately approved Jarvis specialist routes are outside this 136 hierarchy and are not changed by this contract.
 
+## Approved host46 edge
+
+```text
+Jarvis (`default`) ↔ host46 coordinator (`default`)
+```
+
+The route aliases are `host46` on Jarvis and `jarvis` on host46. The host46
+coordinator is the only externally addressable profile on host46. No route to
+a Docker agent or any other host46-local profile is authorised.
+
+Allowed directed routes:
+
+| Caller | Allowed targets |
+|---|---|
+| Jarvis (`default`) | `host46` |
+| host46 coordinator (`default`) | `jarvis` |
+
+These entries are additive to Jarvis's separately approved specialist routes;
+they do not weaken the 136 hierarchy restrictions above.
+
 ## Response obligation
 
 Every delegation remains owned by its caller. A delegation is terminal only when that exact caller receives either:
@@ -45,9 +65,28 @@ The approved transport shape is:
 - `cto136`, `developer136`, and `qa136` communicate through host-local loopback endpoints;
 - the `cto136` model endpoint is supplied through its independently supervised Ornith tunnel on `127.0.0.1:18006`.
 
+The independent host46 edge uses:
+
+- host46 Direct Agent API on host46 loopback `127.0.0.1:9766`;
+- Jarvis local forward `127.0.0.1:9678` to host46 `127.0.0.1:9766`;
+- host46 return forward `127.0.0.1:19762` to the Jarvis Direct Agent API on
+  `127.0.0.1:9661` (not the messaging gateway on port `8644`);
+- one dedicated SSH key selected with `IdentitiesOnly=yes` and an exact
+  `authorized_keys` restriction prefix:
+
+  ```text
+  restrict,port-forwarding,permitopen="127.0.0.1:9766",permitlisten="127.0.0.1:19762"
+  ```
+
+  Append the dedicated public key after that prefix. Never commit the key
+  material. `restrict` disables shell, PTY, agent/X11 forwarding, and user RC;
+  `port-forwarding` then re-enables only the two explicitly permitted forwards.
+
 SSH forwarding must remain least-privilege:
 
 - loopback binds only;
+- `IdentitiesOnly=yes` with the dedicated private key, so agent-loaded or
+  default keys cannot bypass the key-level restrictions;
 - explicit `PermitOpen` destinations;
 - explicit `PermitListen` return endpoint;
 - no public listener;
@@ -66,13 +105,29 @@ qa.allowed_targets      = [cto136]
 
 Target-only route entries must not inherit unrelated caller allowlists. Backups and evidence are not active routing authority.
 
+For the host46 edge, the effective route contract is:
+
+```text
+# Jarvis
+default.allowed_targets += [host46]
+host46.endpoint = http://127.0.0.1:9678
+
+# host46
+default.allowed_targets = [jarvis]
+jarvis.endpoint = http://127.0.0.1:19762
+```
+
+Neither side may add a Docker-agent alias to an `allowed_targets` list.
+
 ## Reproducible artifacts
 
 The repository contains secret-free operational templates matching this topology:
 
 - `deploy/systemd/jarvis-cto136-tunnel.service`
 - `deploy/systemd/cto136-ornith-tunnel.service`
+- `deploy/systemd/jarvis-host46-tunnel.service`
 - `examples/routes/jarvis.direct-agent-api-routes.example.json`
+- `examples/routes/host46.direct-agent-api-routes.example.json`
 - `examples/routes/cto136.direct-agent-api-routes.example.json`
 - `examples/routes/developer-qa.direct-agent-api-routes.example.json`
 
@@ -90,6 +145,22 @@ Verified at `2026-08-27T02:45:50Z`:
 - supervised CTO/Ornith tunnel stable after clearing a stale SSH forwarding session.
 
 Runtime evidence is deliberately not committed because it may contain operational metadata. The verification record remains in the controlled operations workspace under the evidence ID `agent-routing-tunnel-20260827T024550Z`.
+
+### Host46 edge — 2026-08-27
+
+Verified at `2026-08-27T04:51:04Z`:
+
+- both supervised user services enabled and active (host46 gateway and the
+  Jarvis-host46 tunnel), with login lingering enabled;
+- forward and return health checks returned HTTP 200;
+- unauthenticated `POST /v1/runs` returned HTTP 401 on both directions;
+- authenticated runs completed in both directions and returned their expected
+  correlation probe tokens;
+- `coordinate_agent` completed correlated `Jarvis → host46` and
+  `host46 → Jarvis` calls;
+- `docker-agent` was rejected by both live route allowlists before transport;
+- ports `9766`, `19762`, and `9678` were unreachable through non-loopback
+  addresses; route and environment files had mode `0600`.
 
 ## Change control
 
