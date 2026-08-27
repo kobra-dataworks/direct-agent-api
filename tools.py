@@ -8,6 +8,7 @@ can only be resolved by the default (Jarvis) profile.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -53,6 +54,44 @@ COMPANY_STAGING_SUFFIXES = ("kobra.cloud", "kobra-dataworks.de")
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 REQUEST_RE = re.compile(r"^apr_[a-f0-9]{8,64}$|^apr_[A-Za-z0-9_-]{3,120}$")
+DIRECT_AGENT_HMAC_VERSION = "direct-agent-hmac-v1"
+HMAC_TIMESTAMP_WINDOW_SECONDS = 60
+HMAC_HEADER_PROTOCOL = "X-Direct-Agent-Protocol"
+HMAC_HEADER_KEY_ID = "X-Direct-Agent-Key-Id"
+HMAC_HEADER_TIMESTAMP = "X-Direct-Agent-Timestamp"
+HMAC_HEADER_NONCE = "X-Direct-Agent-Nonce"
+HMAC_HEADER_BODY_DIGEST = "X-Direct-Agent-Body-SHA256"
+HMAC_HEADER_DIRECTION = "X-Direct-Agent-Direction"
+HMAC_HEADER_SIGNATURE = "X-Direct-Agent-Signature"
+HMAC_HEADER_AUTH_MODE = "X-Direct-Agent-Auth-Mode"
+
+
+class HmacNonceCache:
+    """Bounded in-memory per-key replay cache for receiver-side verification."""
+
+    def __init__(self, max_entries: int = 10_000, ttl_seconds: int = HMAC_TIMESTAMP_WINDOW_SECONDS * 2):
+        self.max_entries = max(1, int(max_entries))
+        self.ttl_seconds = max(HMAC_TIMESTAMP_WINDOW_SECONDS, int(ttl_seconds))
+        self._seen: dict[tuple[str, str], float] = {}
+        self._lock = threading.Lock()
+
+    def check_and_store(self, key_id: str, nonce: str, now: float) -> bool:
+        cutoff = now - self.ttl_seconds
+        item = (key_id, nonce)
+        with self._lock:
+            expired = [key for key, timestamp in self._seen.items() if timestamp < cutoff]
+            for key in expired:
+                self._seen.pop(key, None)
+            if item in self._seen:
+                return False
+            if len(self._seen) >= self.max_entries:
+                for key, _ in sorted(self._seen.items(), key=lambda entry: entry[1])[: len(self._seen) - self.max_entries + 1]:
+                    self._seen.pop(key, None)
+            self._seen[item] = now
+            return True
+
+
+_DEFAULT_HMAC_NONCE_CACHE = HmacNonceCache()
 
 
 def _sha256_file(path: Path) -> str:
@@ -194,29 +233,192 @@ def check_approval_router_available() -> bool:
     return _profile_name() == "default"
 
 
+def _body_bytes(body: dict[str, Any] | bytes | None) -> bytes:
+    if body is None:
+        return b""
+    if isinstance(body, bytes):
+        return body
+    return json.dumps(body).encode("utf-8")
+
+
+def _canonical_request_path(url_or_path: str) -> str:
+    parsed = urllib.parse.urlparse(url_or_path)
+    path = parsed.path or "/"
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
+def _canonical_hmac_message(
+    *, method: str, url_or_path: str, timestamp: str, nonce: str, body_digest: str,
+    direction: str, protocol_version: str,
+) -> str:
+    return "\n".join((
+        method.upper(), _canonical_request_path(url_or_path), timestamp, nonce,
+        body_digest, direction, protocol_version,
+    ))
+
+
+def _auth_config(route_cfg: dict[str, Any]) -> dict[str, Any]:
+    auth = route_cfg.get("auth") if isinstance(route_cfg, dict) else {}
+    return auth if isinstance(auth, dict) else {}
+
+
+def _hmac_secret_from_config(auth: dict[str, Any], slot: str) -> tuple[str, str] | None:
+    item = auth.get(slot)
+    if not isinstance(item, dict):
+        return None
+    key_id = str(item.get("key_id") or "")
+    secret_env = str(item.get("secret_env") or "")
+    secret = os.environ.get(secret_env, "") if secret_env else ""
+    if not key_id or not secret:
+        return None
+    return key_id, secret
+
+
+def _build_direct_agent_auth_headers(
+    *, method: str, url: str, body: bytes, route_cfg: dict[str, Any], caller: str,
+    target: str, now: int | None = None, nonce: str | None = None,
+) -> dict[str, str]:
+    auth = _auth_config(route_cfg)
+    protocol = str(auth.get("protocol_version") or DIRECT_AGENT_HMAC_VERSION)
+    if protocol != DIRECT_AGENT_HMAC_VERSION:
+        return {}
+    mode = str(auth.get("mode") or "bearer").lower()
+    if mode not in {"hmac", "dual"}:
+        return {}
+    current = _hmac_secret_from_config(auth, "current")
+    if current is None:
+        return {}
+    key_id, secret = current
+    timestamp = str(int(now if now is not None else time.time()))
+    nonce_value = str(nonce or uuid.uuid4().hex)
+    body_digest = hashlib.sha256(body).hexdigest()
+    direction = str(auth.get("direction") or f"{caller}->{target}")
+    canonical = _canonical_hmac_message(
+        method=method, url_or_path=url, timestamp=timestamp, nonce=nonce_value,
+        body_digest=body_digest, direction=direction, protocol_version=protocol,
+    )
+    signature = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        HMAC_HEADER_PROTOCOL: protocol,
+        HMAC_HEADER_KEY_ID: key_id,
+        HMAC_HEADER_TIMESTAMP: timestamp,
+        HMAC_HEADER_NONCE: nonce_value,
+        HMAC_HEADER_BODY_DIGEST: body_digest,
+        HMAC_HEADER_DIRECTION: direction,
+        HMAC_HEADER_SIGNATURE: signature,
+        HMAC_HEADER_AUTH_MODE: mode,
+    }
+
+
+def verify_hmac_request(
+    method: str, path: str, headers: dict[str, Any], body: bytes | str,
+    *, secrets_by_key: dict[str, str], expected_direction: str,
+    nonce_cache: HmacNonceCache | None = None, now: float | None = None,
+) -> dict[str, Any]:
+    canonical_headers = {str(key).lower(): str(value) for key, value in headers.items()}
+    def header(name: str) -> str:
+        return canonical_headers.get(name.lower(), "")
+    protocol = header(HMAC_HEADER_PROTOCOL)
+    key_id = header(HMAC_HEADER_KEY_ID)
+    timestamp_text = header(HMAC_HEADER_TIMESTAMP)
+    nonce = header(HMAC_HEADER_NONCE)
+    body_digest = header(HMAC_HEADER_BODY_DIGEST)
+    direction = header(HMAC_HEADER_DIRECTION)
+    signature = header(HMAC_HEADER_SIGNATURE)
+    if (
+        protocol != DIRECT_AGENT_HMAC_VERSION or not key_id or not timestamp_text
+        or not nonce or not body_digest or not direction or not signature
+        or not re.fullmatch(r"[0-9a-f]{64}", body_digest)
+        or not re.fullmatch(r"[0-9a-f]{64}", signature)
+    ):
+        return {"ok": False, "error_code": "malformed_auth", "error": "request authentication is malformed"}
+    if not hmac.compare_digest(direction, expected_direction):
+        return {"ok": False, "error_code": "wrong_route", "error": "request direction is not allowed"}
+    try:
+        timestamp = int(timestamp_text)
+    except ValueError:
+        return {"ok": False, "error_code": "malformed_auth", "error": "request timestamp is malformed"}
+    current = float(now if now is not None else time.time())
+    if timestamp < current - HMAC_TIMESTAMP_WINDOW_SECONDS:
+        return {"ok": False, "error_code": "expired_timestamp", "error": "request timestamp is expired"}
+    if timestamp > current + HMAC_TIMESTAMP_WINDOW_SECONDS:
+        return {"ok": False, "error_code": "future_timestamp", "error": "request timestamp is in the future"}
+    body_bytes = body.encode("utf-8") if isinstance(body, str) else body
+    actual_digest = hashlib.sha256(body_bytes or b"").hexdigest()
+    if not hmac.compare_digest(body_digest, actual_digest):
+        return {"ok": False, "error_code": "body_digest_mismatch", "error": "request body digest mismatch"}
+    secret = secrets_by_key.get(key_id)
+    if not secret:
+        return {"ok": False, "error_code": "unknown_key", "error": "request key is unknown"}
+    canonical = _canonical_hmac_message(
+        method=method, url_or_path=path, timestamp=timestamp_text, nonce=nonce,
+        body_digest=body_digest, direction=direction, protocol_version=protocol,
+    )
+    expected = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return {"ok": False, "error_code": "bad_signature", "error": "request signature mismatch"}
+    cache = nonce_cache or _DEFAULT_HMAC_NONCE_CACHE
+    if not cache.check_and_store(key_id, nonce, current):
+        return {"ok": False, "error_code": "replayed_nonce", "error": "request nonce was already used"}
+    return {"ok": True, "protocol_version": protocol, "key_id": key_id, "direction": direction}
+
+
 def _request(
     url: str,
     key: str,
     method: str,
     body: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
+    route_cfg: dict[str, Any] | None = None,
+    caller: str | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
-    payload = json.dumps(body).encode("utf-8") if body is not None else None
+    payload_bytes = _body_bytes(body)
+    payload = payload_bytes if body is not None else None
+    auth = _auth_config(route_cfg or {})
+    mode = str(auth.get("mode") or "bearer").lower()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
+    }
+    if key and mode in {"bearer", "dual", ""}:
+        headers["Authorization"] = f"Bearer {key}"
+    headers.update(_build_direct_agent_auth_headers(
+        method=method, url=url, body=payload_bytes, route_cfg=route_cfg or {},
+        caller=caller or _profile_name(), target=target or "",
+    ))
     req = urllib.request.Request(
         url,
         data=payload,
         method=method,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
-        },
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=30) as response:
         raw = response.read(1_000_000).decode("utf-8", errors="replace")
     parsed = json.loads(raw) if raw else {}
     return parsed if isinstance(parsed, dict) else {"raw": raw}
+
+
+def _request_for_route(
+    url: str, key: str, method: str, body: dict[str, Any] | None = None,
+    idempotency_key: str | None = None, route_cfg: dict[str, Any] | None = None,
+    caller: str | None = None, target: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return _request(
+            url, key, method, body, idempotency_key=idempotency_key,
+            route_cfg=route_cfg, caller=caller, target=target,
+        )
+    except TypeError as exc:
+        # Backward-compatible for older tests and monkey-patched transports that
+        # implement the previous bearer-only signature. The real _request above
+        # always accepts these kwargs.
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        if idempotency_key is None:
+            return _request(url, key, method, body)
+        return _request(url, key, method, body, idempotency_key=idempotency_key)
 
 
 def _safe_text(value: Any, limit: int = MAX_RESULT_CHARS) -> str:
@@ -712,6 +914,11 @@ def _jarvis_route() -> tuple[str, str]:
     return str(cfg.get("endpoint") or "").rstrip("/"), str(cfg.get("api_key") or "")
 
 
+def _profile_route(name: str) -> tuple[dict[str, Any], str, str]:
+    cfg = _load_routes().get("profiles", {}).get(name, {})
+    return cfg, str(cfg.get("endpoint") or "").rstrip("/"), str(cfg.get("api_key") or "")
+
+
 def _notify_jarvis(row: dict[str, Any], now: float) -> bool:
     request_id = str(row["request_id"])
     canonical_request_id = str(row.get("canonical_request_id") or request_id)
@@ -735,7 +942,7 @@ def _notify_jarvis(row: dict[str, Any], now: float) -> bool:
         ).rowcount
     if claimed != 1:
         return False
-    endpoint, key = _jarvis_route()
+    jarvis_cfg, endpoint, key = _profile_route("default")
     if not endpoint or not key:
         with _db_connect() as conn:
             conn.execute("UPDATE approval_request SET notification_state='pending' WHERE request_id=?", (request_id,))
@@ -756,10 +963,13 @@ def _notify_jarvis(row: dict[str, Any], now: float) -> bool:
         f"{instruction} Never infer approval from this notification."
     )
     try:
-        result = _request(
+        result = _request_for_route(
             f"{endpoint}/v1/runs", key, "POST",
             {"input": prompt, "session_id": f"team-approval:{request_id}"},
             idempotency_key=f"approval-notify-{request_id}",
+            route_cfg=jarvis_cfg,
+            caller=str(row.get("requesting_profile") or "control-plane"),
+            target="default",
         )
         if not result.get("run_id"):
             raise RuntimeError("Jarvis wake-up did not return a run id")
@@ -827,7 +1037,7 @@ def _deliver_final_result(row: dict[str, Any], status: str, output: str, now: fl
             )
         if claimed != 1:
             return False
-    endpoint, key = _jarvis_route()
+    jarvis_cfg, endpoint, key = _profile_route("default")
     if not endpoint or not key:
         with _db_connect() as conn:
             conn.execute("UPDATE coordination_run SET final_delivery_state='pending' WHERE run_id=?", (run_id,))
@@ -844,9 +1054,12 @@ def _deliver_final_result(row: dict[str, Any], status: str, output: str, now: fl
     )
     session_id = str(row.get("parent_session_id") or f"control-return:{row['trace_id']}")
     try:
-        result = _request(
+        result = _request_for_route(
             f"{endpoint}/v1/runs", key, "POST", {"input": prompt, "session_id": session_id},
             idempotency_key=f"final-result-{run_id}",
+            route_cfg=jarvis_cfg,
+            caller=str(row.get("target_profile") or "control-plane"),
+            target="default",
         )
         if not result.get("run_id"):
             raise RuntimeError("Jarvis result handover did not return a run id")
@@ -905,10 +1118,13 @@ def _deliver_return_to_caller(row: dict[str, Any], status: str, output: str, now
     )
     session_id = str(row.get("parent_session_id") or f"origin-return:{row['trace_id']}")
     try:
-        resp = _request(
+        resp = _request_for_route(
             f"{endpoint}/v1/runs", key, "POST",
             {"input": prompt, "session_id": session_id},
             idempotency_key=f"origin-return-{run_id}",
+            route_cfg=caller_cfg,
+            caller="default",
+            target=calling_profile,
         )
         if not resp.get("run_id"):
             raise RuntimeError("Origin did not return a run id")
@@ -1071,7 +1287,7 @@ def _deliver_missing_approval_event(row: dict[str, Any], event: str, now: float)
         ).rowcount
     if claimed != 1:
         return False
-    endpoint, api_key = _jarvis_route()
+    jarvis_cfg, endpoint, api_key = _profile_route("default")
     if not endpoint or not api_key:
         with _db_connect() as conn:
             conn.execute(
@@ -1102,10 +1318,13 @@ def _deliver_missing_approval_event(row: dict[str, Any], event: str, now: float)
             "it is not an approval decision and authorizes no restart or retry."
         )
     try:
-        result = _request(
+        result = _request_for_route(
             f"{endpoint}/v1/runs", api_key, "POST",
             {"input": prompt, "session_id": f"missing-approval:{trace_id}:{run_id}:{target}"},
             idempotency_key=_missing_approval_idempotency(row, event),
+            route_cfg=jarvis_cfg,
+            caller="control-plane",
+            target="default",
         )
         if not result.get("run_id"):
             raise RuntimeError("Jarvis alert delivery returned no run id")
@@ -1163,7 +1382,12 @@ def _reconcile_once(now: float | None = None) -> dict[str, int]:
         if not endpoint or not key:
             continue
         try:
-            latest = _request(f"{endpoint}/v1/runs/{run['run_id']}", key, "GET")
+            latest = _request_for_route(
+                f"{endpoint}/v1/runs/{run['run_id']}", key, "GET",
+                route_cfg=target_cfg,
+                caller="default",
+                target=str(run["target_profile"]),
+            )
         except Exception:
             continue
         status = str(latest.get("status") or run["status"]).lower()
@@ -1463,10 +1687,13 @@ def respond_team_approval(args: dict[str, Any], **kwargs: Any) -> str:
         result: dict[str, Any] = {}
         if endpoint and key:
             try:
-                result = _request(
+                result = _request_for_route(
                     f"{endpoint}/v1/runs/{native['paused_run_id']}/approval", key, "POST",
                     {"choice": choice, "request_id": native_request_id},
                     idempotency_key=f"approval-decision-{native_request_id}",
+                    route_cfg=target_cfg,
+                    caller="default",
+                    target=target,
                 )
                 failure = "correlation failed"
             except Exception:
@@ -1936,11 +2163,14 @@ def coordinate_agent(args: dict[str, Any], **kwargs: Any) -> str:
         "assumptions; return a concise, decision-ready result with risks and next safe action."
     )
     try:
-        created = _request(
+        created = _request_for_route(
             f"{endpoint}/v1/runs",
             key,
             "POST",
             {"input": prompt, "session_id": trace_id},
+            route_cfg=target_cfg,
+            caller=caller,
+            target=target,
         )
     except urllib.error.HTTPError as exc:
         return json.dumps({"ok": False, "error": f"target API rejected the request ({exc.code})"})
@@ -1975,7 +2205,12 @@ def coordinate_agent(args: dict[str, Any], **kwargs: Any) -> str:
     latest: dict[str, Any] = {"status": "started", "run_id": run_id}
     while time.monotonic() < deadline:
         try:
-            latest = _request(f"{endpoint}/v1/runs/{run_id}", key, "GET")
+            latest = _request_for_route(
+                f"{endpoint}/v1/runs/{run_id}", key, "GET",
+                route_cfg=target_cfg,
+                caller=caller,
+                target=target,
+            )
         except Exception:
             return json.dumps({"ok": False, "run_id": run_id, "trace_id": trace_id, "error": "run started but status is unavailable"})
         status = str(latest.get("status") or "").lower()

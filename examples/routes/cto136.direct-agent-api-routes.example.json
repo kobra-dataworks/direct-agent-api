@@ -9,15 +9,54 @@
     },
     "jarvis": {
       "endpoint": "http://127.0.0.1:19761",
-      "api_key": "REPLACE_WITH_JARVIS_DIRECT_AGENT_API_KEY"
+      "api_key": "REPLACE_WITH_TRANSITIONAL_JARVIS_BEARER_KEY",
+      "auth": {
+        "protocol_version": "direct-agent-hmac-v1",
+        "mode": "dual",
+        "direction": "cto136->jarvis",
+        "current": {
+          "key_id": "cto136-to-jarvis-current",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_JARVIS_CURRENT"
+        },
+        "next": {
+          "key_id": "cto136-to-jarvis-next",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_JARVIS_NEXT"
+        }
+      }
     },
     "developer136": {
       "endpoint": "http://127.0.0.1:9763",
-      "api_key": "REPLACE_WITH_DEVELOPER136_DIRECT_AGENT_API_KEY"
+      "api_key": "REPLACE_WITH_TRANSITIONAL_DEVELOPER136_BEARER_KEY",
+      "auth": {
+        "protocol_version": "direct-agent-hmac-v1",
+        "mode": "dual",
+        "direction": "cto136->developer136",
+        "current": {
+          "key_id": "cto136-to-developer136-current",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_DEVELOPER136_CURRENT"
+        },
+        "next": {
+          "key_id": "cto136-to-developer136-next",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_DEVELOPER136_NEXT"
+        }
+      }
     },
     "qa136": {
       "endpoint": "http://127.0.0.1:9764",
-      "api_key": "REPLACE_WITH_QA136_DIRECT_AGENT_API_KEY"
+      "api_key": "REPLACE_WITH_TRANSITIONAL_QA136_BEARER_KEY",
+      "auth": {
+        "protocol_version": "direct-agent-hmac-v1",
+        "mode": "dual",
+        "direction": "cto136->qa136",
+        "current": {
+          "key_id": "cto136-to-qa136-current",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_QA136_CURRENT"
+        },
+        "next": {
+          "key_id": "cto136-to-qa136-next",
+          "secret_env": "DIRECT_AGENT_HMAC_CTO136_TO_QA136_NEXT"
+        }
+      }
     }
   }
 }
