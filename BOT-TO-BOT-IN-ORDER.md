@@ -7,7 +7,9 @@ This doc is the operator checklist. Pair it with `scripts/health_check.py`,
 the automated proof that nothing gets stuck on a given server.
 
 See `CONTRACT.md` for the read-only data-feed boundary between the actor
-(`direct-agent-api`) and the observer (agent-intelligence).
+(`direct-agent-api`) and the observer (agent-intelligence). See
+`ROUTING-TOPOLOGY.md` for the authoritative Jarvis/136 hierarchy, persistent
+forward and return paths, caller allowlists, and response obligation.
 
 ---
 
@@ -30,10 +32,13 @@ needs a config change, tunnel restart, or the health check to alert.
 
 ## The three gaps that still cause stuck comms
 
-1. **Stale endpoints.** `routes.json` currently has every endpoint on
-   `127.0.0.1` (localhost-only). Cross-server delivery only works through the
-   live SSH tunnels (ports 9671–9675 on ThinkCentre). If an endpoint address
-   goes stale or a tunnel dies, the POST fails and only a manual fix heals it.
+1. **Stale endpoints.** Cross-server entries use localhost-only endpoints behind
+   supervised SSH tunnels. The Jarvis/136 development path currently uses
+   `127.0.0.1:9677` on ThinkCentre for Jarvis → `cto136` and
+   `127.0.0.1:19761` on 136 for `cto136` → Jarvis. If an endpoint goes stale
+   or a tunnel dies, the POST fails and only a config/tunnel repair heals it.
+   See `ROUTING-TOPOLOGY.md` for the authoritative hierarchy and forbidden
+   lateral routes.
 2. **Receiver-side reconciler must be alive.** The incoming `/v1/runs` handler
    just runs a profile — it does not create a `coordination_run`. A delivery to
    136/GX10/46 only "lands" if that server's `default` coordinator is also

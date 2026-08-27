@@ -25,6 +25,12 @@ delegates an task is informed at its conclusion.
   an incoming `/v1/runs` POST creates a generic run (no new
   `coordination_run`), so the return loop is self-terminating.
 
+## Routing authority
+
+The approved Jarvis/136 hierarchy, caller allowlists, persistent forward/return tunnels, response obligation, and topology change-control gates are defined in [`ROUTING-TOPOLOGY.md`](ROUTING-TOPOLOGY.md).
+
+Runtime endpoints and bearer keys remain external in `~/.hermes/direct-agent-api-routes.json`; no secrets live in this repository.
+
 ## Config (external, not committed)
 
 Endpoints and bearer keys are read from `~/.hermes/direct-agent-api-routes.json`
