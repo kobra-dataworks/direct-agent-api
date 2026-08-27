@@ -71,13 +71,22 @@ The independent host46 edge uses:
 - Jarvis local forward `127.0.0.1:9678` to host46 `127.0.0.1:9766`;
 - host46 return forward `127.0.0.1:19762` to the Jarvis Direct Agent API on
   `127.0.0.1:9661` (not the messaging gateway on port `8644`);
-- one dedicated SSH key restricted with `port-forwarding`,
-  `permitopen="127.0.0.1:9766"`, and
-  `permitlisten="127.0.0.1:19762"`.
+- one dedicated SSH key selected with `IdentitiesOnly=yes` and an exact
+  `authorized_keys` restriction prefix:
+
+  ```text
+  restrict,port-forwarding,permitopen="127.0.0.1:9766",permitlisten="127.0.0.1:19762"
+  ```
+
+  Append the dedicated public key after that prefix. Never commit the key
+  material. `restrict` disables shell, PTY, agent/X11 forwarding, and user RC;
+  `port-forwarding` then re-enables only the two explicitly permitted forwards.
 
 SSH forwarding must remain least-privilege:
 
 - loopback binds only;
+- `IdentitiesOnly=yes` with the dedicated private key, so agent-loaded or
+  default keys cannot bypass the key-level restrictions;
 - explicit `PermitOpen` destinations;
 - explicit `PermitListen` return endpoint;
 - no public listener;

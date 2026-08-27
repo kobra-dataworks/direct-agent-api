@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=/usr/bin/ssh -NT \
   -i %h/.ssh/id_ed25519_host46_direct_agent \
+  -o IdentitiesOnly=yes \
   -o BatchMode=yes \
   -o ExitOnForwardFailure=yes \
   -o ServerAliveInterval=30 \
