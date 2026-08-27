@@ -12,7 +12,20 @@
     },
     "cto136": {
       "endpoint": "http://127.0.0.1:9765",
-      "api_key": "REPLACE_WITH_CTO136_DIRECT_AGENT_API_KEY"
+      "api_key": "REPLACE_WITH_TRANSITIONAL_CTO136_BEARER_KEY",
+      "auth": {
+        "protocol_version": "direct-agent-hmac-v1",
+        "mode": "dual",
+        "direction": "coding->cto136",
+        "current": {
+          "key_id": "coding-to-cto136-current",
+          "secret_env": "DIRECT_AGENT_HMAC_CODING_TO_CTO136_CURRENT"
+        },
+        "next": {
+          "key_id": "coding-to-cto136-next",
+          "secret_env": "DIRECT_AGENT_HMAC_CODING_TO_CTO136_NEXT"
+        }
+      }
     }
   }
 }

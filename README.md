@@ -36,8 +36,38 @@ Runtime endpoints and bearer keys remain external in `~/.hermes/direct-agent-api
 
 ## Config (external, not committed)
 
-Endpoints and bearer keys are read from `~/.hermes/direct-agent-api-routes.json`
-via `_jarvis_route()`. No secrets live in this repo.
+Endpoints and authentication metadata are read from `~/.hermes/direct-agent-api-routes.json`.
+Secrets are referenced by environment variable name (for example
+`secret_env`) or by the transitional legacy bearer field; no secret values live
+in this repo.
+
+## Directional request authentication
+
+PR2 adds explicit `direct-agent-hmac-v1` request authentication for direct
+agent API calls. The signer computes HMAC-SHA256 over this canonical message:
+
+```text
+METHOD
+/path?query
+unix_timestamp_seconds
+nonce
+sha256(body_bytes)
+caller->target
+direct-agent-hmac-v1
+```
+
+The transport sends `X-Direct-Agent-Protocol`, `X-Direct-Agent-Key-Id`,
+`X-Direct-Agent-Timestamp`, `X-Direct-Agent-Nonce`,
+`X-Direct-Agent-Body-SHA256`, `X-Direct-Agent-Direction`,
+`X-Direct-Agent-Signature`, and `X-Direct-Agent-Auth-Mode` headers. Receiver
+verification uses constant-time digest/signature comparison, rejects timestamps
+outside ±60 seconds, enforces per-key nonce replay rejection with a bounded
+cache, and accepts only the configured current/next key IDs for rotation.
+
+Routes may use `auth.mode = "dual"` during transition to send both legacy
+Bearer and HMAC headers, then move to `auth.mode = "hmac"` after every receiver
+has been upgraded. `auth.mode = "bearer"` preserves legacy behavior for routes
+that have not been migrated yet.
 
 ## Reconcile loop
 
