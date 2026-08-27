@@ -1,0 +1,23 @@
+{
+  "profiles": {
+    "cto136": {
+      "allowed_targets": [
+        "jarvis",
+        "developer136",
+        "qa136"
+      ]
+    },
+    "jarvis": {
+      "endpoint": "http://127.0.0.1:19761",
+      "api_key": "REPLACE_WITH_JARVIS_DIRECT_AGENT_API_KEY"
+    },
+    "developer136": {
+      "endpoint": "http://127.0.0.1:9763",
+      "api_key": "REPLACE_WITH_DEVELOPER136_DIRECT_AGENT_API_KEY"
+    },
+    "qa136": {
+      "endpoint": "http://127.0.0.1:9764",
+      "api_key": "REPLACE_WITH_QA136_DIRECT_AGENT_API_KEY"
+    }
+  }
+}

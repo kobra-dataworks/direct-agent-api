@@ -66,6 +66,18 @@ qa.allowed_targets      = [cto136]
 
 Target-only route entries must not inherit unrelated caller allowlists. Backups and evidence are not active routing authority.
 
+## Reproducible artifacts
+
+The repository contains secret-free operational templates matching this topology:
+
+- `deploy/systemd/jarvis-cto136-tunnel.service`
+- `deploy/systemd/cto136-ornith-tunnel.service`
+- `examples/routes/jarvis.direct-agent-api-routes.example.json`
+- `examples/routes/cto136.direct-agent-api-routes.example.json`
+- `examples/routes/developer-qa.direct-agent-api-routes.example.json`
+
+The JSON files are examples only. Replace placeholders through the approved secret channel; never commit live bearer keys.
+
 ## Verification baseline — 2026-08-27
 
 Verified at `2026-08-27T02:45:50Z`:

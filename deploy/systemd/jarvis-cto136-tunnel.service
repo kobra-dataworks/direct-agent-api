@@ -1,0 +1,20 @@
+[Unit]
+Description=Persistent bidirectional direct-agent tunnel: Jarvis <-> cto136
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -N -T \
+  -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:9677:127.0.0.1:9765 \
+  -R 127.0.0.1:19761:127.0.0.1:9661 \
+  kobra-136-api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

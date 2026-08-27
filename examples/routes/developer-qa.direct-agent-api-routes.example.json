@@ -1,0 +1,18 @@
+{
+  "profiles": {
+    "coding": {
+      "allowed_targets": [
+        "cto136"
+      ]
+    },
+    "qa": {
+      "allowed_targets": [
+        "cto136"
+      ]
+    },
+    "cto136": {
+      "endpoint": "http://127.0.0.1:9765",
+      "api_key": "REPLACE_WITH_CTO136_DIRECT_AGENT_API_KEY"
+    }
+  }
+}
